@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Khang Photo Booth v3</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons CDN -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* Custom scrollbar */
+        .scrollbar-thin::-webkit-scrollbar {
+            height: 6px;
+            width: 6px;
+        }
+        .scrollbar-thin::-webkit-scrollbar-track {
+            background: #171717;
+        }
+        .scrollbar-thin::-webkit-scrollbar-thumb {
+            background: #404040;
+            border-radius: 3px;
+        }
+        .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+            background: #525252;
+        }
+        
+        /* Mirror effect for live video */
+        .mirror {
+            transform: scaleX(-1);
+        }
+        
+        /* Frame styles */
+        .frame-classic-white { border: 16px solid #ffffff !important; }
+        .frame-classic-black { border: 16px solid #0a0a0a !important; }
+        .frame-neon-pink {
+            border: 12px solid #ec4899 !important;
+            box-shadow: inset 0 0 20px rgba(236, 72, 153, 0.8) !important;
+        }
+        .frame-retro-y2k {
+            border: 16px solid #818cf8 !important;
+            outline: 4px dashed #facc15;
+            outline-offset: -12px;
+        }
+        .frame-film-strip {
+            border-top: 24px solid #171717 !important;
+            border-bottom: 24px solid #171717 !important;
+            border-left: 40px solid #171717 !important;
+            border-right: 40px solid #171717 !important;
+            position: relative;
+        }
+        .frame-film-strip::before, .frame-film-strip::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 14px;
+            background-image: linear-gradient(to bottom, #ffffff 0px, #ffffff 12px, transparent 12px, transparent 24px);
+            background-size: 100% 24px;
+            z-index: 10;
+        }
+        .frame-film-strip::before { left: -27px; }
+        .frame-film-strip::after { right: -27px; }
+
+        /* Selected asset outline */
+        .selected-asset {
+            outline: 2px dashed #ec4899;
+            outline-offset: 4px;
+            background: rgba(236, 72, 153, 0.1);
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-neutral-900 text-white font-sans selection:bg-pink-500 selection:text-white">
+
+    <!-- Header -->
+    <header class="bg-neutral-950 border-b border-neutral-800 p-4 sticky top-0 z-20 shadow-md">
+        <div class="max-w-6xl mx-auto flex items-center justify-between">
+            <div class="flex items-center gap-2 text-pink-400">
+                <i data-lucide="sparkles" class="w-6 h-6 animate-pulse"></i>
+                <h1 class="text-xl md:text-2xl font-bold tracking-tight">Khang Photo Booth</h1>
+            </div>
+            <span class="text-xs bg-neutral-800 text-neutral-400 px-3 py-1 rounded-full border border-neutral-700">Bản v3.0 (Mặt nạ Tương tác) 🎭</span>
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-8">
+        
+        <!-- Cột trái: Camera & Bộ điều khiển -->
+        <section class="lg:col-span-8 flex flex-col gap-6">
+            
+            <!-- Màn hình hiển thị live Camera -->
+            <div class="relative rounded-2xl overflow-hidden bg-black shadow-2xl border border-neutral-800 aspect-[4/3] md:aspect-video flex items-center justify-center">
+                
+                <!-- Lỗi Camera -->
+                <div id="camera-error" class="hidden flex-col items-center text-neutral-500 p-6 text-center">
+                    <i data-lucide="alert-circle" class="w-12 h-12 text-red-500 mb-2"></i>
+                    <p class="text-lg text-neutral-300">Không tìm thấy hoặc không thể truy cập camera 😢</p>
+                    <p class="text-xs text-neutral-500 mt-1">Hãy chắc chắn rằng mình đã cấp quyền camera cho trình duyệt nhé!</p>
+                </div>
+
+                <!-- Live Container -->
+                <div id="video-container" class="relative w-full h-full flex items-center justify-center overflow-hidden">
+                    <div id="video-frame" class="w-full h-full transition-all duration-300 relative">
+                        <video id="video" autoplay playsinline muted class="w-full h-full object-cover mirror"></video>
+                        
+                        <!-- Vùng chứa Mặt nạ / Sticker di động -->
+                        <div id="sticker-zone" class="absolute inset-0 pointer-events-none z-10 overflow-hidden"></div>
+                    </div>
+                    
+                    <!-- Hiệu ứng Đèn Flash -->
+                    <div id="flash-overlay" class="absolute inset-0 bg-white z-30 opacity-0 pointer-events-none transition-opacity duration-150"></div>
+
+                    <!-- Màn hình Đếm Ngược Overlay -->
+                    <div id="countdown-overlay" class="absolute inset-0 bg-black/50 z-40 flex items-center justify-center text-8xl md:text-9xl font-black text-pink-500 hidden select-none">
+                        3
+                    </div>
+
+                    <!-- Trạng thái Loading ban đầu -->
+                    <div id="camera-loading" class="absolute inset-0 bg-neutral-900 flex flex-col items-center justify-center z-40">
+                        <i data-lucide="refresh-cw" class="w-8 h-8 animate-spin text-pink-500 mb-2"></i>
+                        <p class="text-neutral-400 text-sm">Đang kết nối camera...</p>
+                    </div>
+                </div>
+
+                <!-- Nút chụp hình -->
+                <div id="snap-control" class="hidden absolute bottom-6 left-0 right-0 flex justify-center z-20">
+                    <button id="btn-capture" class="bg-white/20 hover:bg-white/40 backdrop-blur-md p-2 rounded-full transition-all active:scale-95 group">
+                        <div class="bg-white group-hover:bg-pink-100 w-16 h-16 rounded-full flex items-center justify-center shadow-lg border-4 border-white/30">
+                            <i data-lucide="camera" class="w-8 h-8 text-neutral-900"></i>
+                        </div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Thanh điều khiển thuộc tính Mặt nạ đang chọn (Chỉ hiện khi nhấp vào mặt nạ) -->
+            <div id="edit-panel" class="bg-neutral-950 p-4 rounded-2xl border border-pink-500/30 shadow-lg hidden space-y-3 animate-fade-in">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-pink-400 flex items-center gap-1">
+                        <i data-lucide="sliders" class="w-3.5 h-3.5"></i> ĐANG CHỈNH SỬA MẶT NẠ / STICKER
+                    </span>
+                    <button onclick="deselectAsset()" class="text-xs text-neutral-400 hover:text-white bg-neutral-800 px-2 py-0.5 rounded">Xong</button>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="flex items-center gap-3">
+                        <label class="text-xs text-neutral-400 w-20">Kích thước:</label>
+                        <input type="range" id="slider-scale" min="0.3" max="3" step="0.1" value="1" class="w-full accent-pink-500 h-1 bg-neutral-800 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <label class="text-xs text-neutral-400 w-20">Xoay góc:</label>
+                        <input type="range" id="slider-rotate" min="-180" max="180" step="5" value="0" class="w-full accent-indigo-500 h-1 bg-neutral-800 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Khu vực Chọn Bộ lọc & Khung ảnh & Mặt nạ -->
+            <div class="bg-neutral-950 p-5 rounded-2xl border border-neutral-800 space-y-6 shadow-lg">
+                <!-- 1. Chọn Viền -->
+                <div>
+                    <h2 class="text-xs font-bold text-neutral-400 mb-3 uppercase tracking-wider flex items-center gap-2">
+                        <i data-lucide="frame" class="w-4 h-4 text-indigo-400"></i> 1. Chọn Khung Viền Ảnh
+                    </h2>
+                    <div id="frame-options" class="flex overflow-x-auto pb-2 gap-3 scrollbar-thin"></div>
+                </div>
+
+                <!-- 2. Chọn Filter màu -->
+                <div>
+                    <h2 class="text-xs font-bold text-neutral-400 mb-3 uppercase tracking-wider flex items-center gap-2">
+                        <i data-lucide="image" class="w-4 h-4 text-pink-400"></i> 2. Chọn Filter Màu
+                    </h2>
+                    <div id="filter-options" class="flex overflow-x-auto pb-2 gap-3 scrollbar-thin"></div>
+                </div>
+
+                <!-- 3. Mặt nạ & Phụ kiện Độc lạ (Tính năng mới) -->
+                <div>
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="text-xs font-bold text-neutral-400 uppercase tracking-wider flex items-center gap-2">
+                            <i data-lucide="mask" class="w-4 h-4 text-red-400"></i> 3. Đeo Mặt Nạ & Phụ Kiện (Bấm để đeo, nhấp vào hình để Xoay/Phóng to)
+                        </h2>
+                        <button id="btn-clear-stickers" class="hidden text-[11px] text-neutral-500 hover:text-red-400 transition-colors">
+                            Xóa hết phụ kiện trên mặt
+                        </button>
+                    </div>
+                    <div id="mask-options" class="flex overflow-x-auto pb-2 gap-2 scrollbar-thin text-3xl">
+                        <!-- Render mặt nạ độc lạ -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Cột phải: Thư viện ảnh đã chụp -->
+        <section class="lg:col-span-4 bg-neutral-950 rounded-2xl border border-neutral-800 p-5 shadow-lg flex flex-col max-h-[650px] lg:max-h-none">
+            <div class="flex items-center justify-between mb-4 border-b border-neutral-800 pb-3">
+                <h2 class="font-bold flex items-center gap-2">
+                    Ảnh của mình
+                    <span id="photo-count" class="bg-neutral-800 text-pink-400 text-xs px-2 py-0.5 rounded-full font-mono">0</span>
+                </h2>
+                <button id="btn-clear-all" class="hidden text-xs text-red-400 hover:text-red-300 flex items-center gap-1 transition-colors">
+                    <i data-lucide="trash-2" class="w-3 h-3"></i> Xóa hết
+                </button>
+            </div>
+
+            <!-- List hình ảnh -->
+            <div id="gallery" class="flex-1 overflow-y-auto pr-1 space-y-4 scrollbar-thin flex flex-col justify-center items-center">
+                <div id="gallery-empty" class="text-center text-neutral-500 opacity-60 p-4">
+                    <i data-lucide="image" class="w-10 h-10 mb-2 stroke-[1.5] mx-auto"></i>
+                    <p class="text-sm">Chưa có ảnh nào được chụp.</p>
+                </div>
+                <div id="gallery-list" class="w-full space-y-4 hidden"></div>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        const FILTERS = [
+            { id: 'normal', name: 'Nguyên bản', value: 'none' },
+            { id: 'grayscale', name: 'Trắng Đen', value: 'grayscale(100%)' },
+            { id: 'sepia', name: 'Hoài Niệm', value: 'sepia(80%) contrast(110%)' },
+            { id: 'vintage', name: 'Vintage', value: 'sepia(50%) hue-rotate(-30deg) saturate(140%) contrast(120%)' },
+            { id: 'cyberpunk', name: 'Cyberpunk', value: 'hue-rotate(90deg) saturate(200%) contrast(120%)' },
+            { id: 'saturate', name: 'Đậm Đà', value: 'saturate(200%)' },
+            { id: 'bright', name: 'Tươi Sáng', value: 'brightness(130%) contrast(110%)' },
+        ];
+
+        const FRAMES = [
+            { id: 'none', name: 'Không viền', class: '' },
+            { id: 'classic-white', name: 'Viền Trắng', class: 'frame-classic-white' },
+            { id: 'classic-black', name: 'Viền Đen', class: 'frame-classic-black' },
+            { id: 'neon-pink', name: 'Pink Neon', class: 'frame-neon-pink' },
+            { id: 'retro-y2k', name: 'Y2K Ngọt Ngào', class: 'frame-retro-y2k' },
+            { id: 'film-strip', name: 'Khung Phim', class: 'frame-film-strip' }
+        ];
+
+        // Kho mặt nạ phụ kiện siêu chất, mô phỏng 3D/AR góc nhìn rộng
+        const MASK_LIST = [
+            { emoji: '🎭', name: 'Mặt nạ bí ẩn' },
+            { emoji: '🕶️', name: 'Kính ngầu Benito' },
+            { emoji: '🥽', name: 'Kính bảo hộ 3D' },
+            { emoji: '👑', name: 'Vương miện hoàng gia' },
+            { emoji: '🐱', name: 'Tai mèo cute' },
+            { emoji: '🥸', name: 'Mặt cải trang vui nhộn' },
+            { emoji: '🎅', name: 'Mũ Noel ấm áp' },
+            { emoji: '🎀', name: 'Nơ hồng Y2K' },
+            { emoji: '🔥', name: 'Mắt lửa chiến thần' },
+            { emoji: '✨', name: 'Hào quang lấp lánh' },
+            { emoji: '👽', name: 'Mặt người ngoài hành tinh' },
+            { emoji: '🦊', name: 'Mặt nạ cáo Nhật Bản' }
+        ];
+
+        let currentFilterValue = 'none';
+        let currentFrameObj = FRAMES[0];
+        let photosList = [];
+        let activeStickers = []; 
+        let selectedStickerId = null;
+        let stickerIdCounter = 0;
+        let isCountingDown = false;
+
+        // DOM Elements
+        const video = document.getElementById('video');
+        const videoFrame = document.getElementById('video-frame');
+        const videoContainer = document.getElementById('video-container');
+        const cameraLoading = document.getElementById('camera-loading');
+        const cameraError = document.getElementById('camera-error');
+        const snapControl = document.getElementById('snap-control');
+        const btnCapture = document.getElementById('btn-capture');
+        const flashOverlay = document.getElementById('flash-overlay');
+        const countdownOverlay = document.getElementById('countdown-overlay');
+        const filterOptions = document.getElementById('filter-options');
+        const frameOptions = document.getElementById('frame-options');
+        const maskOptions = document.getElementById('mask-options');
+        const stickerZone = document.getElementById('sticker-zone');
+        const btnClearStickers = document.getElementById('btn-clear-stickers');
+        const editPanel = document.getElementById('edit-panel');
+        const sliderScale = document.getElementById('slider-scale');
+        const sliderRotate = document.getElementById('slider-rotate');
+        const photoCount = document.getElementById('photo-count');
+        const btnClearAll = document.getElementById('btn-clear-all');
+        const galleryEmpty = document.getElementById('gallery-empty');
+        const galleryList = document.getElementById('gallery-list');
+        const galleryContainer = document.getElementById('gallery');
+
+        // Khởi tạo Camera
+        async function initCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+                    audio: false
+                });
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    cameraLoading.classList.add('hidden');
+                    snapControl.classList.remove('hidden');
+                };
+            } catch (err) {
+                console.error(err);
+                cameraLoading.classList.add('hidden');
+                videoContainer.classList.add('hidden');
+                cameraError.classList.remove('hidden');
+            }
+        }
+
+        // Render giao diện điều khiển
+        function renderControls() {
+            frameOptions.innerHTML = FRAMES.map(f => `
+                <button onclick="selectFrame('${f.id}')" id="btn-frame-${f.id}" class="flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-medium transition-all border bg-neutral-900 text-neutral-400 border-neutral-800 hover:text-white hover:border-neutral-700">
+                    ${f.name}
+                </button>
+            `).join('');
+
+            filterOptions.innerHTML = FILTERS.map(fil => `
+                <button onclick="selectFilter('${fil.id}')" id="btn-filter-${fil.id}" class="flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-medium transition-all border bg-neutral-900 text-neutral-400 border-neutral-800 hover:text-white hover:border-neutral-700">
+                    ${fil.name}
+                </button>
+            `).join('');
+
+            maskOptions.innerHTML = MASK_LIST.map(m => `
+                <button onclick="addNewMask('${m.emoji}')" class="p-2 bg-neutral-900 border border-neutral-800 rounded-xl hover:bg-neutral-800 hover:scale-110 active:scale-95 transition-all text-center flex flex-col items-center min-w-[64px]" title="${m.name}">
+                    <span>${m.emoji}</span>
+                </button>
+            `).join('');
+
+            updateActiveButton('frame', currentFrameObj.id, 'bg-indigo-600', 'border-indigo-400');
+            updateActiveButton('filter', FILTERS[0].id, 'bg-pink-600', 'border-pink-400');
+        }
+
+        function updateActiveButton(type, id, bgClass, borderClass) {
+            const list = type === 'frame' ? FRAMES : FILTERS;
+            list.forEach(item => {
+                const btn = document.getElementById(`btn-${type}-${item.id}`);
+                if (btn) {
+                    if (item.id === id) {
+                        btn.className = `flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-medium transition-all border text-white ${bgClass} ${borderClass} shadow-md scale-102`;
+                    } else {
+                        btn.className = `flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-medium transition-all border bg-neutral-900 text-neutral-400 border-neutral-800 hover:text-white hover:border-neutral-700`;
+                    }
+                }
+            });
+        }
+
+        window.selectFilter = function(filterId) {
+            const target = FILTERS.find(f => f.id === filterId);
+            if (target) {
+                currentFilterValue = target.value;
+                video.style.filter = currentFilterValue;
+                updateActiveButton('filter', filterId, 'bg-pink-600', 'border-pink-400');
+            }
+        };
+
+        window.selectFrame = function(frameId) {
+            const target = FRAMES.find(f => f.id === frameId);
+            if (target) {
+                currentFrameObj = target;
+                FRAMES.forEach(f => { if(f.class) videoFrame.classList.remove(f.class); });
+                if (target.class) videoFrame.classList.add(target.class);
+                updateActiveButton('frame', frameId, 'bg-indigo-600', 'border-indigo-400');
+            }
+        };
+
+        // --- HỆ THỐNG MẶT NẠ PHÂN GIẢI CAO TƯƠNG TÁC (XOAY/PHÓNG TO GIẢ LẬP 3D) ---
+        window.addNewMask = function(emoji) {
+            stickerIdCounter++;
+            const id = stickerIdCounter;
+
+            const maskObj = {
+                id: id,
+                emoji: emoji,
+                left: 45, // % vị trí bắt đầu ở tâm
+                top: 40,
+                scale: 1.0,
+                rotate: 0
+            };
+
+            const el = document.createElement('div');
+            el.id = `sticker-node-${id}`;
+            el.className = 'absolute pointer-events-auto cursor-move select-none group touch-none transition-transform duration-75';
+            el.style.left = '45%';
+            el.style.top = '40%';
+            el.style.transform = 'translate(-50%, -50%) rotate(0deg) scale(1)';
+            
+            el.innerHTML = `
+                <div id="content-box-${id}" class="p-2 flex items-center justify-center">
+                    <span class="text-6xl md:text-7xl block select-none drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)]">${emoji}</span>
+                </div>
+                <button onclick="event.stopPropagation(); deleteStickerNode(${id})" class="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-md z-50">✕</button>
+            `;
+
+            // Bấm vào mặt nạ để chọn chỉnh sửa kích thước / độ xoay góc 3D
+            el.addEventListener('click', (e) => {
+                e.stopPropagation();
+                selectAssetForEdit(id);
+            });
+
+            stickerZone.appendChild(el);
+            activeStickers.push(maskObj);
+            
+            bindStickerDrag(el, maskObj);
+            selectAssetForEdit(id);
+            checkStickersCount();
+        };
+
+        function selectAssetForEdit(id) {
+            // Gỡ bỏ viền của mặt nạ cũ nếu có
+            if (selectedStickerId) {
+                const oldBox = document.getElementById(`content-box-${selectedStickerId}`);
+                if (oldBox) oldBox.classList.remove('selected-asset');
+            }
+
+            selectedStickerId = id;
+            const target = activeStickers.find(s => s.id === id);
+            if (target) {
+                // Hiển thị thanh chỉnh sửa góc 3D
+                editPanel.classList.remove('hidden');
+                sliderScale.value = target.scale;
+                sliderRotate.value = target.rotate;
+
+                const newBox = document.getElementById(`content-box-${id}`);
+                if (newBox) newBox.classList.add('selected-asset');
+            }
+        }
+
+        window.deselectAsset = function() {
+            if (selectedStickerId) {
+                const oldBox = document.getElementById(`content-box-${selectedStickerId}`);
+                if (oldBox) oldBox.classList.remove('selected-asset');
+            }
+            selectedStickerId = null;
+            editPanel.classList.add('hidden');
+        };
+
+        // Đồng bộ dữ liệu thanh trượt với linh hồn mặt nạ thực tế
+        sliderScale.addEventListener('input', () => {
+            if (!selectedStickerId) return;
+            const target = activeStickers.find(s => s.id === selectedStickerId);
+            if (target) {
+                target.scale = parseFloat(sliderScale.value);
+                applyTransforms(target);
+            }
+        });
+
+        sliderRotate.addEventListener('input', () => {
+            if (!selectedStickerId) return;
+            const target = activeStickers.find(s => s.id === selectedStickerId);
+            if (target) {
+                target.rotate = parseInt(sliderRotate.value);
+                applyTransforms(target);
+            }
+        });
+
+        function applyTransforms(target) {
+            const el = document.getElementById(`sticker-node-${target.id}`);
+            if (el) {
+                el.style.transform = `translate(-50%, -50%) rotate(${target.rotate}deg) scale(${target.scale})`;
+            }
+        }
+
+        window.deleteStickerNode = function(id) {
+            const node = document.getElementById(`sticker-node-${id}`);
+            if (node) node.remove();
+            activeStickers = activeStickers.filter(s => s.id !== id);
+            if (selectedStickerId === id) deselectAsset();
+            checkStickersCount();
+        };
+
+        // Bấm ra ngoài khoảng không camera để hủy chọn chỉnh sửa mặt nạ
+        videoContainer.addEventListener('click', () => {
+            deselectAsset();
+        });
+
+        function checkStickersCount() {
+            if (activeStickers.length > 0) btnClearStickers.classList.remove('hidden');
+            else btnClearStickers.classList.add('hidden');
+        }
+
+        btnClearStickers.addEventListener('click', (e) => {
+            e.stopPropagation();
+            stickerZone.innerHTML = '';
+            activeStickers = [];
+            deselectAsset();
+            checkStickersCount();
+        });
+
+        // Hàm xử lý kéo thả nâng cao tính theo tâm vật thể
+        function bindStickerDrag(el, maskObj) {
+            let isDragging = false;
+            let startX, startY;
+
+            el.addEventListener('mousedown', dragStart);
+            el.addEventListener('touchstart', dragStart, { passive: false });
+
+            function dragStart(e) {
+                isDragging = true;
+                const clientX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
+                const clientY = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
+
+                const rect = el.getBoundingClientRect();
+                // Kéo từ điểm trung tâm của vật thể
+                startX = clientX - (rect.left + rect.width / 2);
+                startY = clientY - (rect.top + rect.height / 2);
+
+                document.addEventListener('mousemove', dragMove);
+                document.addEventListener('touchmove', dragMove, { passive: false });
+                document.addEventListener('mouseup', dragEnd);
+                document.addEventListener('touchend', dragEnd);
+            }
+
+            function dragMove(e) {
+                if (!isDragging) return;
+                if (e.type === 'touchmove') e.preventDefault();
+
+                const clientX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
+                const clientY = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY;
+
+                const zoneRect = stickerZone.getBoundingClientRect();
+                let currentX = clientX - zoneRect.left - startX;
+                let currentY = clientY - zoneRect.top - startY;
+
+                if (currentX < 0) currentX = 0;
+                if (currentY < 0) currentY = 0;
+                if (currentX > zoneRect.width) currentX = zoneRect.width;
+                if (currentY > zoneRect.height) currentY = zoneRect.height;
+
+                el.style.left = currentX + 'px';
+                el.style.top = currentY + 'px';
+
+                // Lưu lại tọa độ tỉ lệ phần trăm mặt nạ
+                maskObj.left = (currentX / zoneRect.width) * 100;
+                maskObj.top = (currentY / zoneRect.height) * 100;
+            }
+
+            function dragEnd() {
+                isDragging = false;
+                document.removeEventListener('mousemove', dragMove);
+                document.removeEventListener('touchmove', dragMove);
+                document.removeEventListener('mouseup', dragEnd);
+                document.removeEventListener('touchend', dragEnd);
+            }
+        }
+
+        // --- ĐẾM NGƯỢC THỜI GIAN CHỤP ---
+        function handleCaptureClick() {
+            if (isCountingDown) return;
+            isCountingDown = true;
+            deselectAsset(); // Ẩn viền chọn chỉnh sửa trước khi chụp hình
+            btnCapture.disabled = true;
+            btnCapture.classList.add('opacity-40');
+
+            countdownOverlay.classList.remove('hidden');
+            let timeLeft = 3; 
+            countdownOverlay.innerText = timeLeft;
+
+            const timer = setInterval(() => {
+                timeLeft--;
+                if (timeLeft > 0) {
+                    countdownOverlay.innerText = timeLeft;
+                } else {
+                    clearInterval(timer);
+                    countdownOverlay.classList.add('hidden');
+                    capturePhoto();
+                    isCountingDown = false;
+                    btnCapture.disabled = false;
+                    btnCapture.classList.remove('opacity-40');
+                }
+            }, 1000);
+        }
+
+        // Hòa trộn kết hợp vẽ xoay lật mặt nạ trực tiếp lên ảnh Canvas gốc
+        function capturePhoto() {
+            flashOverlay.style.opacity = '1';
+            setTimeout(() => { flashOverlay.style.opacity = '0'; }, 200);
+
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth || 1280;
+            canvas.height = video.videoHeight || 720;
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width;
+            const h = canvas.height;
+
+            let videoBounding = { x: 0, y: 0, w: w, h: h };
+
+            if (currentFrameObj.id === 'film-strip') {
+                ctx.fillStyle = '#171717';
+                ctx.fillRect(0, 0, w, h);
+                ctx.fillStyle = '#ffffff';
+                const holeW = w * 0.02;
+                const holeH = h * 0.03;
+                const spacing = h * 0.05;
+                for (let y = spacing; y < h; y += holeH + spacing) {
+                    ctx.fillRect(w * 0.015, y, holeW, holeH); 
+                    ctx.fillRect(w - (w * 0.015) - holeW, y, holeW, holeH); 
+                }
+                videoBounding.x = w * 0.05;
+                videoBounding.y = h * 0.04;
+                videoBounding.w = w * 0.90;
+                videoBounding.h = h * 0.92;
+
+                ctx.save();
+                ctx.translate(w, 0);
+                ctx.scale(-1, 1);
+                ctx.filter = currentFilterValue;
+                ctx.drawImage(video, videoBounding.x, videoBounding.y, videoBounding.w, videoBounding.h);
+                ctx.restore();
+            } else {
+                ctx.save();
+                ctx.translate(w, 0);
+                ctx.scale(-1, 1);
+                ctx.filter = currentFilterValue;
+                ctx.drawImage(video, 0, 0, w, h);
+                ctx.restore();
+
+                if (currentFrameObj.id === 'classic-white') {
+                    ctx.lineWidth = 32; ctx.strokeStyle = '#ffffff'; ctx.strokeRect(0, 0, w, h);
+                } else if (currentFrameObj.id === 'classic-black') {
+                    ctx.lineWidth = 32; ctx.strokeStyle = '#0a0a0a'; ctx.strokeRect(0, 0, w, h);
+                } else if (currentFrameObj.id === 'neon-pink') {
+                    ctx.lineWidth = 24; ctx.strokeStyle = '#ec4899'; ctx.strokeRect(0, 0, w, h);
+                    ctx.lineWidth = 8; ctx.strokeStyle = 'rgba(236,72,153,0.5)'; ctx.strokeRect(16, 16, w - 32, h - 32);
+                } else if (currentFrameObj.id === 'retro-y2k') {
+                    ctx.lineWidth = 32; ctx.strokeStyle = '#818cf8'; ctx.strokeRect(0, 0, w, h);
+                    ctx.lineWidth = 4; ctx.strokeStyle = '#facc15'; ctx.setLineDash([15, 10]); ctx.strokeRect(18, 18, w - 36, h - 36);
+                    ctx.setLineDash([]);
+                }
+            }
+
+            // Gộp và Xử lý Vẽ Xoay Mặt Nạ / Phụ Kiện lên Canvas (Tránh lật ngược chữ)
+            ctx.textBaseline = 'middle';
+            ctx.textAlign = 'center';
+            
+            activeStickers.forEach(mask => {
+                const maskX = videoBounding.x + (mask.left / 100) * videoBounding.w;
+                const maskY = videoBounding.y + (mask.top / 100) * videoBounding.h;
+                
+                // Định cỡ font cơ bản theo chiều cao luồng video nhân với độ phóng to tùy biến
+                const baseFontSize = videoBounding.h * 0.11;
+                const dynamicFontSize = baseFontSize * mask.scale;
+                
+                ctx.save();
+                // Di chuyển gốc tọa độ canvas về tâm mặt nạ để xoay góc
+                ctx.translate(maskX, maskY);
+                ctx.rotate((mask.rotate * Math.PI) / 180);
+                
+                ctx.font = `${dynamicFontSize}px serif`;
+                // Đổ bóng nhẹ cho mặt nạ chân thực
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+                ctx.shadowBlur = 12;
+                ctx.shadowOffsetY = 6;
+
+                ctx.fillText(mask.emoji, 0, 0);
+                ctx.restore();
+            });
+
+            const dataUrl = canvas.toDataURL('image/png');
+            photosList.unshift(dataUrl);
+            updateGallery();
+        }
+
+        function updateGallery() {
+            photoCount.innerText = photosList.length;
+            if (photosList.length === 0) {
+                galleryEmpty.classList.remove('hidden');
+                galleryList.classList.add('hidden');
+                btnClearAll.classList.add('hidden');
+                galleryContainer.classList.add('justify-center');
+            } else {
+                galleryEmpty.classList.add('hidden');
+                galleryList.classList.remove('hidden');
+                btnClearAll.classList.remove('hidden');
+                galleryContainer.classList.remove('justify-center');
+
+                galleryList.innerHTML = photosList.map((photo, index) => `
+                    <div class="group relative bg-neutral-900 rounded-xl overflow-hidden border border-neutral-800 transition-all hover:border-pink-500/50">
+                        <img src="${photo}" alt="Captured Photo" class="w-full h-auto" />
+                        <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
+                            <button onclick="downloadPhoto('${photo}', ${index})" class="bg-white text-black p-2 rounded-full hover:scale-110 transition-transform shadow-lg" title="Tải về máy">
+                                <i data-lucide="download" class="w-5 h-5"></i>
+                            </button>
+                            <button onclick="deletePhoto(${index})" class="bg-red-500 text-white p-2 rounded-full hover:scale-110 transition-transform shadow-lg" title="Xóa ảnh">
+                                <i data-lucide="trash-2" class="w-5 h-5"></i>
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+                lucide.createIcons();
+            }
+        }
+
+        window.downloadPhoto = function(dataUrl, index) {
+            const a = document.createElement('a');
+            a.href = dataUrl;
+            a.download = `khang-booth-${Date.now()}-${index}.png`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        };
+
+        window.deletePhoto = function(index) {
+            photosList.splice(index, 1);
+            updateGallery();
+        };
+
+        btnClearAll.addEventListener('click', () => {
+            if (confirm("Xóa toàn bộ ảnh đã chụp trong thư viện?")) {
+                photosList = [];
+                updateGallery();
+            }
+        });
+
+        btnCapture.addEventListener('click', handleCaptureClick);
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initCamera();
+            renderControls();
+            lucide.createIcons();
+        });
+    </script>
+</body>
+</html>
